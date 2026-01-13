@@ -1,0 +1,19 @@
+﻿@using web_app.Components.Pages
+@using Microsoft.AspNetCore.Components.Authorization
+@using web_app.Components.Layout
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                <Login />
+            </NotAuthorized>
+        </AuthorizeRouteView>
+    </Found>
+    <NotFound>
+        <PageTitle>Not found</PageTitle>
+        <LayoutView Layout="typeof(MainLayout)">
+            <p role="alert">Página não encontrada.</p>
+        </LayoutView>
+    </NotFound>
+</Router>

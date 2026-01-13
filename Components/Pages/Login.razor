@@ -1,0 +1,54 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using web_app
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<div class="d-flex justify-content-center align-items-center" style="height: 80vh;">
+    <div class="card p-4 shadow" style="width: 350px;">
+        <h3 class="text-center mb-4">Login Faturas</h3>
+        
+        <div class="mb-3">
+            <label class="form-label">Utilizador</label>
+            <input @bind="username" class="form-control" placeholder="admin" />
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input @bind="password" type="password" class="form-control" placeholder="1234" />
+        </div>
+        
+        <button class="btn btn-primary w-100" @onclick="FazerLogin">Entrar</button>
+        
+        @if (!string.IsNullOrEmpty(mensagemErro))
+        {
+            <div class="alert alert-danger mt-3 text-center">@mensagemErro</div>
+        }
+    </div>
+</div>
+
+@code {
+    private string username = "";
+    private string password = "";
+    private string mensagemErro = "";
+
+    private void FazerLogin()
+    {
+        if (username == "admin" && password == "1234") 
+        {
+            // 1. Regista o login no sistema
+            var customAuth = (CustomAuthProvider)AuthProvider;
+            customAuth.Login(username);
+            
+            // 2. Navega para as faturas SEM recarregar a página (forceLoad: false)
+            // Isto é fundamental para não perder o login que acabaste de fazer
+            Nav.NavigateTo("faturas");
+        }
+        else
+        {
+            mensagemErro = "Dados incorretos!";
+        }
+    }
+}

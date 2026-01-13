@@ -1,0 +1,204 @@
+﻿@page "/faturas"
+@rendermode InteractiveServer
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using WebApp
+@using web_app
+@inject BlobServiceClient BlobService
+@inject AppDbContext DbContext
+@inject NotificationService Notificacao
+
+<AuthorizeView>
+    <Authorized Context="authContext">
+
+        <h3>Gestão de Faturas</h3>
+
+        <EditForm Model="@novaFatura" OnValidSubmit="GuardarFatura" FormName="FaturaForm">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label>Título:</label>
+                <InputText @bind-Value="novaFatura.Titulo" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label>Data:</label>
+                <InputDate @bind-Value="novaFatura.Data" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label>Valor c/ IVA:</label>
+                <InputNumber @bind-Value="novaFatura.ValorComIva" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label>Valor s/ IVA:</label>
+                <InputNumber @bind-Value="novaFatura.ValorSemIva" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label>Email do Cliente (para notificação):</label>
+                <InputText @bind-Value="novaFatura.EmailCliente" class="form-control" placeholder="cliente@exemplo.com" />
+            </div>
+
+            <div class="mb-3">
+                <label>Fatura (PDF/Imagem):</label>
+                <InputFile OnChange="CarregarFicheiro" class="form-control" />
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                @(novaFatura.Id == 0 ? "Criar Fatura" : "Atualizar Fatura")
+            </button>
+
+            @if (novaFatura.Id != 0)
+            {
+                <button type="button" class="btn btn-secondary" @onclick="CancelarEdicao">Cancelar</button>
+            }
+        </EditForm>
+
+        <hr />
+
+        <h4>Lista de Faturas</h4>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Título</th>
+                    <th>Data</th>
+                    <th>Valor</th>
+                    <th>Email Cliente</th>
+                    <th>Anexo</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var fatura in listaFaturas)
+                {
+                    <tr>
+                        <td>@fatura.Titulo</td>
+                        <td>@fatura.Data.ToShortDateString()</td>
+                        <td>@fatura.ValorComIva €</td>
+                        <td>@fatura.EmailCliente</td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(fatura.UrlDocumento))
+                            {
+                                <a href="@fatura.UrlDocumento" target="_blank">Ver Anexo</a>
+                            }
+                        </td>
+                        <td>
+                            <button class="btn btn-warning btn-sm" @onclick="() => PrepararEdicao(fatura)">Editar</button>
+                            <button class="btn btn-danger btn-sm" @onclick="() => Eliminar(fatura)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </Authorized>
+    <NotAuthorized>
+        <div class="alert alert-warning">
+            Tens de fazer <a href="/">Login</a> para ver esta página!
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private Fatura novaFatura = new Fatura();
+    private List<Fatura> listaFaturas = new List<Fatura>();
+    private IBrowserFile? ficheiroUpload;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CarregarLista();
+    }
+
+    private void CarregarFicheiro(InputFileChangeEventArgs e)
+    {
+        ficheiroUpload = e.File;
+    }
+
+    private void PrepararEdicao(Fatura f)
+    {
+        novaFatura = f;
+    }
+
+    private void CancelarEdicao()
+    {
+        novaFatura = new Fatura();
+        ficheiroUpload = null;
+    }
+
+    private async Task GuardarFatura()
+    {
+        // 1. Upload para o Blob Storage (com Download forçado)
+        if (ficheiroUpload != null)
+        {
+            var container = BlobService.GetBlobContainerClient("faturas");
+            await container.CreateIfNotExistsAsync();
+
+            var nomeFicheiro = Guid.NewGuid().ToString() + Path.GetExtension(ficheiroUpload.Name);
+            var blob = container.GetBlobClient(nomeFicheiro);
+
+            var headers = new BlobHttpHeaders
+            {
+                ContentDisposition = $"attachment; filename=\"{ficheiroUpload.Name}\"",
+                ContentType = ficheiroUpload.ContentType
+            };
+
+            var options = new BlobUploadOptions { HttpHeaders = headers };
+
+            using (var stream = ficheiroUpload.OpenReadStream(maxAllowedSize: 5120000))
+            {
+                await blob.UploadAsync(stream, options);
+            }
+
+            novaFatura.UrlDocumento = blob.Uri.ToString();
+        }
+
+        // 2. Gravar na Base de Dados e Enviar Email
+        if (novaFatura.Id == 0)
+        {
+            // Adiciona à BD
+            DbContext.Faturas.Add(novaFatura);
+
+            // --- Lógica de IA e Email ---
+            if (!string.IsNullOrEmpty(novaFatura.EmailCliente))
+            {
+                try
+                {
+                    // Gera o texto usando a IA (chama o serviço que criaste)
+                    string corpoEmail = await Notificacao.GerarMensagemAgradecimento(novaFatura.Titulo);
+
+                    // Envia o email usando o serviço de Comunicação
+                    await Notificacao.EnviarEmail(novaFatura.EmailCliente, "Fatura Disponível", corpoEmail);
+                }
+                catch (Exception ex)
+                {
+                    // Se o email falhar, o código não crasha, apenas avisa na consola
+                    Console.WriteLine($"Erro ao enviar email: {ex.Message}");
+                }
+            }
+            // ----------------------------
+        }
+        else
+        {
+            DbContext.Faturas.Update(novaFatura);
+        }
+
+        await DbContext.SaveChangesAsync();
+        CancelarEdicao();
+        await CarregarLista();
+    }
+
+    private async Task CarregarLista()
+    {
+        listaFaturas = await DbContext.Faturas.ToListAsync();
+    }
+
+    private async Task Eliminar(Fatura f)
+    {
+        DbContext.Faturas.Remove(f);
+        await DbContext.SaveChangesAsync();
+        await CarregarLista();
+    }
+}
